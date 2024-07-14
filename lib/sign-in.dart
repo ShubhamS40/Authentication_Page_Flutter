@@ -1,13 +1,16 @@
-import 'package:authentication_google/sign-up.dart';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-// Import your AuthPage
+import 'home.dart'; // Import your home.dart file here
+import './sign-up.dart'; // Assuming sign-up.dart is renamed to sign_up.dart
+import 'package:github_sign_in_plus/github_sign_in_plus.dart';
 
 class SignInPage extends StatefulWidget {
-  const SignInPage({super.key});
+  const SignInPage({Key? key}) : super(key: key);
 
   @override
-  State<SignInPage> createState() => _SignInPageState();
+  _SignInPageState createState() => _SignInPageState();
 }
 
 class _SignInPageState extends State<SignInPage> {
@@ -15,21 +18,164 @@ class _SignInPageState extends State<SignInPage> {
   final TextEditingController password = TextEditingController();
   final _formKey = GlobalKey<FormState>();
 
-  void _signIn() {
+  @override
+  void dispose() {
+    email.dispose();
+    password.dispose();
+    super.dispose();
+  }
+
+  Future<void> signIn() async {
     if (_formKey.currentState!.validate()) {
-      // Perform sign-in logic here
-      print('Sign-In Successful');
+      try {
+        UserCredential userCredential = await FirebaseAuth.instance
+            .signInWithEmailAndPassword(
+            email: email.text, password: password.text);
+        if (userCredential.user != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Login Successful"),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          email.clear();
+          password.clear();
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => HomePage()),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("Invalid Credentials"),
+              duration: Duration(seconds: 2),
+            ),
+          );
+          email.clear();
+          password.clear();
+        }
+      } on FirebaseAuthException catch (e) {
+        String message = 'Authentication failed';
+        if (e.code == 'user-not-found') {
+          message = 'No user found for that email.';
+        } else if (e.code == 'wrong-password') {
+          message = 'Wrong password provided.';
+        } else {
+          message = e.message ?? 'An error occurred. Please try again later.';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(message),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('An error occurred. Please try again later.'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     }
   }
 
-  void _signInWithGoogle() {
-    // Perform Google sign-in logic here
-    print('Sign-In with Google');
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    clientId: '1098217591910-13tgsge8ph9ul13cdj2jfv68392dn9ad.apps.googleusercontent.com',
+  );
+
+  Future<void> _signInWithGoogle() async {
+    try {
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      if (googleUser == null) {
+        // User canceled the sign-in
+        return;
+      }
+
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+      final OAuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      final UserCredential userCredential = await _auth.signInWithCredential(credential);
+      final User? user = userCredential.user;
+
+      if (user != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Sign in successful, ${user.displayName ?? 'User'}!"),
+          ),
+        );
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (context) => HomePage()), // Replace with your home page widget
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Sign in failed"),
+          ),
+        );
+      }
+    } catch (e) {
+      print(e);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("Sign in failed: $e"),
+        ),
+      );
+    }
   }
 
-  void _signInWithGitHub() {
-    // Perform GitHub sign-in logic here
-    print('Sign-In with GitHub');
+  Future<void> _signInWithGitHub() async {
+    try {
+      final result = await GitHubSignIn(
+        clientId: "Ov23liH1FL83YRZhKZA2",
+        clientSecret: "b7327e9835921d14fc304ae6c19868d1d3e4d73c",
+        redirectUrl: "http://localhost:53769/",
+      ).signIn(context);
+
+      if (result != null && result.token != null) {
+        // Successfully signed in
+        OAuthCredential credential = GithubAuthProvider.credential(result.token!);
+
+        final UserCredential userCredential = await _auth.signInWithCredential(credential);
+        User? user = userCredential.user;
+
+        if (user != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("GitHub sign in successful, ${user.displayName ?? 'User'}!"),
+            ),
+          );
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => HomePage()), // Replace with your home page widget
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text("GitHub sign in failed"),
+            ),
+          );
+        }
+      } else {
+        // User canceled the sign-in or result token is null
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("GitHub sign in canceled"),
+          ),
+        );
+      }
+    } catch (e) {
+      print('GitHub sign in error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("GitHub sign in failed: $e"),
+        ),
+      );
+    }
   }
 
   @override
@@ -118,7 +264,7 @@ class _SignInPageState extends State<SignInPage> {
                       SizedBox(
                         width: double.infinity,
                         child: GestureDetector(
-                          onTap: _signIn,
+                          onTap: signIn,
                           child: Container(
                             margin: EdgeInsets.symmetric(horizontal: 23, vertical: 20),
                             padding: EdgeInsets.symmetric(vertical: 15),
@@ -167,7 +313,7 @@ class _SignInPageState extends State<SignInPage> {
                           ),
                         ],
                       ),
-                      SizedBox(height: 5,),
+                      SizedBox(height: 5),
                       GestureDetector(
                         onTap: () {
                           Navigator.push(
