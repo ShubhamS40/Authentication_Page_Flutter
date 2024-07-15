@@ -1,8 +1,10 @@
 import 'package:authentication_google/home.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:authentication_google/sign-in.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:authentication_google/sign-in.dart'; // Import your SignInPage
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 class AuthPage extends StatefulWidget {
   const AuthPage({Key? key}) : super(key: key);
@@ -12,30 +14,25 @@ class AuthPage extends StatefulWidget {
 }
 
 class _AuthPageState extends State<AuthPage> {
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
+  final _formKey = GlobalKey<FormState>();
   final TextEditingController username = TextEditingController();
   final TextEditingController email = TextEditingController();
   final TextEditingController password = TextEditingController();
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
-  Future<bool> _register() async {
+  Future<void> _register() async {
     final FormState? form = _formKey.currentState;
     if (form!.validate()) {
       try {
         final UserCredential userCredential = await FirebaseAuth.instance
             .createUserWithEmailAndPassword(
-                email: email.text.trim(), password: password.text.trim());
+            email: email.text.trim(), password: password.text.trim());
         print('User registered: ${userCredential.user!.uid}');
-
-        // Show Snackbar message
-         
-        //  if(userCredential){
-        //   Navigator.push(context, MaterialPageRoute(builder: (context) => HomePage(),));
-        //  }
-
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('User Signup Successfully'),
+            content: Text('User signed up successfully'),
             duration: Duration(seconds: 2),
           ),
         );
@@ -45,20 +42,66 @@ class _AuthPageState extends State<AuthPage> {
         email.clear();
         password.clear();
 
-        return true; // Registration successful
+        // Navigate to home page after successful registration
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => HomePage()),
+        );
       } catch (e) {
         print('Failed to register user: $e');
-        // Show error Snackbar message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Failed to register user: $e'),
             duration: Duration(seconds: 2),
           ),
         );
-        return false; // Registration failed
       }
     }
-    return false; // Validation failed
+  }
+
+  Future<void> signInWithGoogle() async {
+    final GoogleSignIn googleSignIn = GoogleSignIn();
+    final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
+
+    if (googleUser != null) {
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+      final AuthCredential credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      UserCredential result = await _auth.signInWithCredential(credential);
+      User? userDetails = result.user;
+      print(userDetails);
+
+      if (userDetails != null) {
+        Map<String, dynamic> userInfoMap = {
+          "id": userDetails.uid,
+          "username": userDetails.displayName,
+          "email": userDetails.email,
+          "photo": userDetails.photoURL,
+        };
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text("Login Successfully...."),
+          duration: Duration(seconds: 2),
+        ));
+        Navigator.push(context, MaterialPageRoute(
+          builder: (context) => HomePage(),
+        ));
+        final ok = await FirebaseFirestore.instance.collection("users").add(userInfoMap); // Corrected collection name to "users"
+        print("Data successfully uploaded to the server: $ok");
+      }
+
+      // You can use userDetails here, for example, to update your UI or save user information
+    } else {
+      print("Something went wrong");
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text("Something Went Wrong Server Down"),
+        duration: Duration(seconds: 2),
+      ));
+      // Handle the case where the user canceled the sign-in
+    }
   }
 
   @override
@@ -74,10 +117,10 @@ class _AuthPageState extends State<AuthPage> {
               children: [
                 Container(
                   color: Colors.blue,
-                  height: 200,
+                  height: 250,
                   width: double.infinity,
                   child: Image.network(
-                    "https://img.freepik.com/premium-vector/call-center-agent-design-flat-style_23-2147945881.jpg",
+                    "https://img.freepik.com/premium-vector/get-business-identification-number-abstract-concept-vector-illustration_107173-40787.jpg",
                     fit: BoxFit.cover,
                     errorBuilder: (BuildContext context, Object exception,
                         StackTrace? stackTrace) {
@@ -179,17 +222,7 @@ class _AuthPageState extends State<AuthPage> {
                       SizedBox(
                         width: double.infinity,
                         child: GestureDetector(
-                          onTap: () async {
-                            bool success = await _register();
-                            if (success) {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (context) => HomePage()),
-                              );
-                            } else {
-                              print('Registration failed');
-                            }
-                          },
+                          onTap: _register,
                           child: Container(
                             margin: EdgeInsets.symmetric(
                                 horizontal: 23, vertical: 10),
@@ -220,21 +253,22 @@ class _AuthPageState extends State<AuthPage> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           GestureDetector(
-                            // onTap: _signInWithGoogle,
+                            onTap: signInWithGoogle,
                             child: Container(
                               alignment: Alignment.center,
                               height: 50,
                               width: 50,
-                              child: FaIcon(FontAwesomeIcons.google),
+                              child: FaIcon(FontAwesomeIcons.google,size: 40,color: Color.fromARGB(255, 8, 75, 129),),
                             ),
                           ),
+                          SizedBox(width: 40,height: 100,),
                           GestureDetector(
                             // onTap: _signInWithGitHub,
                             child: Container(
                               alignment: Alignment.center,
                               height: 50,
                               width: 50,
-                              child: FaIcon(FontAwesomeIcons.github),
+                              child: FaIcon(FontAwesomeIcons.github,size: 40,color: Color.fromARGB(255, 8, 75, 129),),
                             ),
                           ),
                         ],
@@ -273,3 +307,6 @@ class _AuthPageState extends State<AuthPage> {
     );
   }
 }
+
+
+

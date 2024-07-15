@@ -1,10 +1,15 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:authentication_google/sign-up.dart';
+// import 'package:authentication_google/sign_up.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'home.dart'; // Import your home.dart file here
-import './sign-up.dart'; // Assuming sign-up.dart is renamed to sign_up.dart
-import 'package:github_sign_in_plus/github_sign_in_plus.dart';
+import 'package:flutter_web_auth/flutter_web_auth.dart';
+import 'home.dart';
 
 class SignInPage extends StatefulWidget {
   const SignInPage({Key? key}) : super(key: key);
@@ -17,6 +22,7 @@ class _SignInPageState extends State<SignInPage> {
   final TextEditingController email = TextEditingController();
   final TextEditingController password = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  final FirebaseAuth _auth = FirebaseAuth.instance;
 
   @override
   void dispose() {
@@ -29,8 +35,7 @@ class _SignInPageState extends State<SignInPage> {
     if (_formKey.currentState!.validate()) {
       try {
         UserCredential userCredential = await FirebaseAuth.instance
-            .signInWithEmailAndPassword(
-            email: email.text, password: password.text);
+            .signInWithEmailAndPassword(email: email.text, password: password.text);
         if (userCredential.user != null) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -80,33 +85,83 @@ class _SignInPageState extends State<SignInPage> {
     }
   }
 
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final GoogleSignIn _googleSignIn = GoogleSignIn(
-    clientId: '1098217591910-13tgsge8ph9ul13cdj2jfv68392dn9ad.apps.googleusercontent.com',
-  );
+  Future<void> signInWithGoogle() async {
+    final GoogleSignIn googleSignIn = GoogleSignIn();
+    final GoogleSignInAccount? googleUser = await googleSignIn.signIn();
 
-  Future<void> _signInWithGoogle() async {
-    try {
-      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      if (googleUser == null) {
-        // User canceled the sign-in
-        return;
-      }
-
+    if (googleUser != null) {
       final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
 
-      final OAuthCredential credential = GoogleAuthProvider.credential(
+      final AuthCredential credential = GoogleAuthProvider.credential(
         accessToken: googleAuth.accessToken,
         idToken: googleAuth.idToken,
       );
 
+      UserCredential result = await _auth.signInWithCredential(credential);
+      User? userDetails = result.user;
+      print(userDetails);
+
+      if (userDetails != null) {
+        Map<String, dynamic> userInfoMap = {
+          "id": userDetails.uid,
+          "username": userDetails.displayName,
+          "email": userDetails.email,
+          "photo": userDetails.photoURL,
+        };
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text("Login Successfully...."),
+          duration: Duration(seconds: 2),
+        ));
+        Navigator.push(context, MaterialPageRoute(
+          builder: (context) => HomePage(),
+        ));
+        final ok = await FirebaseFirestore.instance.collection("users").add(userInfoMap); // Corrected collection name to "users"
+        print("Data successfully uploaded to the server: $ok");
+      }
+
+      // You can use userDetails here, for example, to update your UI or save user information
+    } else {
+      print("Something went wrong");
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text("Something Went Wrong Server Down"),
+        duration: Duration(seconds: 2),
+      ));
+      // Handle the case where the user canceled the sign-in
+    }
+  }
+
+  Future<void> _signInWithGitHub(BuildContext context) async {
+    try {
+      final clientId = "Ov23liH1FL83YRZhKZA2";
+      final clientSecret = "b7327e9835921d14fc304ae6c19868d1d3e4d73c";
+      final redirectUrl = 'https://your-app.firebaseapp.com/__/auth/handler'; // Replace with your actual redirect URL
+      final url = 'https://github.com/login/oauth/authorize?client_id=$clientId&redirect_uri=$redirectUrl&scope=read:user,user:email';
+
+      final result = await FlutterWebAuth.authenticate(url: url, callbackUrlScheme: "https");
+
+      final code = Uri.parse(result).queryParameters['code'];
+
+      final response = await http.post(
+        Uri.parse('https://github.com/login/oauth/access_token'),
+        headers: {'Accept': 'application/json'},
+        body: {
+          'client_id': clientId,
+          'client_secret': clientSecret,
+          'code': code,
+        },
+      );
+
+      final accessToken = json.decode(response.body)['access_token'];
+
+      OAuthCredential credential = GithubAuthProvider.credential(accessToken);
+
       final UserCredential userCredential = await _auth.signInWithCredential(credential);
-      final User? user = userCredential.user;
+      User? user = userCredential.user;
 
       if (user != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("Sign in successful, ${user.displayName ?? 'User'}!"),
+            content: Text("GitHub sign in successful, ${user.displayName ?? 'User'}!"),
           ),
         );
         Navigator.of(context).pushReplacement(
@@ -115,56 +170,7 @@ class _SignInPageState extends State<SignInPage> {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("Sign in failed"),
-          ),
-        );
-      }
-    } catch (e) {
-      print(e);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Sign in failed: $e"),
-        ),
-      );
-    }
-  }
-
-  Future<void> _signInWithGitHub() async {
-    try {
-      final result = await GitHubSignIn(
-        clientId: "Ov23liH1FL83YRZhKZA2",
-        clientSecret: "b7327e9835921d14fc304ae6c19868d1d3e4d73c",
-        redirectUrl: "http://localhost:53769/",
-      ).signIn(context);
-
-      if (result != null && result.token != null) {
-        // Successfully signed in
-        OAuthCredential credential = GithubAuthProvider.credential(result.token!);
-
-        final UserCredential userCredential = await _auth.signInWithCredential(credential);
-        User? user = userCredential.user;
-
-        if (user != null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text("GitHub sign in successful, ${user.displayName ?? 'User'}!"),
-            ),
-          );
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (context) => HomePage()), // Replace with your home page widget
-          );
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text("GitHub sign in failed"),
-            ),
-          );
-        }
-      } else {
-        // User canceled the sign-in or result token is null
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("GitHub sign in canceled"),
+            content: Text("GitHub sign in failed"),
           ),
         );
       }
@@ -191,10 +197,10 @@ class _SignInPageState extends State<SignInPage> {
               children: [
                 Container(
                   color: Colors.blue,
-                  height: 200,
+                  height: 300,
                   width: double.infinity,
                   child: Image.network(
-                    "https://img.freepik.com/premium-vector/call-center-agent-design-flat-style_23-2147945881.jpg",
+                    "https://img.freepik.com/free-vector/programming-concept-illustration_114360-1325.jpg?t=st=1721061785~exp=1721062385~hmac=36214217bc76e05b0569687c435b4c54c72d8f758c92280c65484f0e94f6e692",
                     fit: BoxFit.cover,
                     errorBuilder: (BuildContext context, Object exception, StackTrace? stackTrace) {
                       return Center(
@@ -294,21 +300,22 @@ class _SignInPageState extends State<SignInPage> {
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           GestureDetector(
-                            onTap: _signInWithGoogle,
+                            onTap: signInWithGoogle,
                             child: Container(
                               alignment: Alignment.center,
                               height: 50,
                               width: 50,
-                              child: FaIcon(FontAwesomeIcons.google),
+                              child: FaIcon(FontAwesomeIcons.google,size: 40, color: Color.fromARGB(255, 8, 75, 129),),
                             ),
                           ),
+                          SizedBox(width: 50,height: 100,),
                           GestureDetector(
-                            onTap: _signInWithGitHub,
+                            onTap: () => _signInWithGitHub(context), // Add context parameter
                             child: Container(
                               alignment: Alignment.center,
                               height: 50,
                               width: 50,
-                              child: FaIcon(FontAwesomeIcons.github),
+                              child: FaIcon(FontAwesomeIcons.github,size: 40,color: Color.fromARGB(255, 8, 75, 129),),
                             ),
                           ),
                         ],
